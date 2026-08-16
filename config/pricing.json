@@ -1,0 +1,24 @@
+{
+  "_comment": "$ per million tokens, verified against Anthropic's published pricing on 2026-08-16. Each model is an array of chronological rate periods; the LAST entry must have no \"until\" (src/types.ts enforces this at load) — that's the standing rate an introductory one rolls over to. Cache reads/writes are derived from `input` (0.1x / 1.25x) in src/pricing.ts, not listed separately here. OpenAI models are intentionally absent: PLAN.md's own table has no verified OpenAI rate to put here, and a guessed number in a cost ledger is worse than an honest gap — add one, from OpenAI's published pricing, when portfolio's OpenAiRunner migrates in Phase 2 (see PLAN.md's build order, step 4).",
+
+  "claude-opus-5": [
+    { "input": 5.00, "output": 25.00 }
+  ],
+  "claude-opus-4-8": [
+    { "input": 5.00, "output": 25.00 }
+  ],
+  "claude-sonnet-5": [
+    { "until": "2026-08-31", "input": 2.00, "output": 10.00 },
+    { "input": 3.00, "output": 15.00 }
+  ],
+  "claude-haiku-4-5": [
+    { "input": 1.00, "output": 5.00 }
+  ],
+  "claude-fable-5": [
+    { "input": 10.00, "output": 50.00 }
+  ],
+
+  "gemma4:12b": [
+    { "input": 0, "output": 0 }
+  ]
+}

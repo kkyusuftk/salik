@@ -1,0 +1,6 @@
+node_modules/
+data/
+.DS_Store
+
+# Real client tokens and real upstream cloud keys. Copy keys.json.example.
+config/keys.json

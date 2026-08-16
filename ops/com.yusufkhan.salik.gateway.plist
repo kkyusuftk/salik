@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.yusufkhan.salik.gateway</string>
+
+  <!-- No build step and no dist/ — Bun runs the TypeScript entry directly, so
+       what's on disk is what runs. Absolute paths throughout: launchd's
+       minimal environment does not put /opt/homebrew/bin on PATH, so a bare
+       "bun" here would fail to launch at all. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/bun</string>
+    <string>server/server.ts</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/yusufkhan/Projects/salik</string>
+
+  <!-- Start at boot, before anyone logs in, and every other project on this
+       box is depending on it — every model call from portfolio, trip-agent,
+       job-agent, and receipt-analyzer passes through this one process. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Restart whenever it exits, for any reason: a crash, an OOM kill, or a
+       clean exit are all resurrected. This is the single point of failure for
+       every model call on the machine, so it does not get to stay down. -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Refuse to respawn faster than this. Without it, a bad config.json edit
+       that makes the process exit immediately on startup becomes a hot loop
+       that pins a core instead of a clear, readable failure in the log. -->
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <!-- This is a request-serving network service, not batch work standing
+       aside for something else — unlike trip-agent's worker (Background,
+       Nice 10), Salik gets normal scheduling priority. -->
+  <key>ProcessType</key>
+  <string>Interactive</string>
+
+  <!-- /opt/homebrew/bin for bun itself; /usr/sbin costs nothing to include
+       and matches the other services' plists even though Salik has no
+       lsof-shelling gate.mjs equivalent to need it. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin</string>
+  </dict>
+
+  <!-- One combined log, like trip-agent and job-agent (not portfolio-ops's
+       split .log/.err.log) — the Gen-2 convention this repo follows. -->
+  <key>StandardOutPath</key>
+  <string>/Users/yusufkhan/Projects/salik/data/salik.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/yusufkhan/Projects/salik/data/salik.log</string>
+</dict>
+</plist>

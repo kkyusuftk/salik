@@ -1,0 +1,5 @@
+[test]
+# The preemption/abort suite spins up real fake-upstream servers and waits on
+# real (short) timers rather than mocking the clock, so give it more headroom
+# than bun's 5s default before a slow run is mistaken for a hang.
+timeout = 15000

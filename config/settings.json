@@ -1,0 +1,28 @@
+{
+  "_comment": "Port, upstreams, tiers, timeouts, retention. Run `bunx tsc --noEmit && bun test` after editing — src/types.ts validates this at startup and refuses to start rather than run with a silently-wrong config.",
+
+  "port": 4749,
+  "host": "0.0.0.0",
+  "dbPath": "data/salik.db",
+  "logPath": "data/salik.log",
+  "bodiesDir": "data/bodies",
+  "bodyRetentionDays": 3,
+
+  "upstreams": {
+    "ollama": {
+      "url": "http://127.0.0.1:11434",
+      "timeoutMs": 240000
+    },
+    "anthropic": {
+      "url": "https://api.anthropic.com",
+      "timeoutMs": 240000,
+      "defaultVersion": "2023-06-01"
+    },
+    "openai": {
+      "_comment": "Model names listed here route the OpenAI-compat surface (/v1/chat/completions) to Ollama's own OpenAI-compat endpoint instead of the real OpenAI API — see src/routes/openai.ts. Everything else goes to `url` below.",
+      "url": "https://api.openai.com",
+      "timeoutMs": 240000,
+      "localModels": ["gemma4:12b"]
+    }
+  }
+}

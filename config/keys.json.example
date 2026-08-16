@@ -1,0 +1,16 @@
+{
+  "_comment": "Copy to keys.json (gitignored, chmod 600). upstreamKeys hold Salik's OWN real cloud credentials — clients never see these, only their own scoped Salik token below. Generate a token per client with: openssl rand -hex 32",
+
+  "upstreamKeys": {
+    "anthropic": "",
+    "openai": ""
+  },
+
+  "clients": [
+    { "token": "", "name": "portfolio", "tier": "interactive", "dailyBudgetUsd": 2.00 },
+    { "token": "", "name": "trip-agent-web", "tier": "chat", "dailyBudgetUsd": 0.50 },
+    { "token": "", "name": "trip-agent-worker", "tier": "batch", "dailyBudgetUsd": 0.50 },
+    { "token": "", "name": "job-agent", "tier": "batch", "dailyBudgetUsd": 1.00 },
+    { "token": "", "name": "receipt-analyzer", "tier": "batch", "dailyBudgetUsd": 0.50 }
+  ]
+}
