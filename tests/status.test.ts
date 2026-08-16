@@ -52,7 +52,7 @@ describe('GET /api/salik/status', () => {
         usage: { prompt_tokens: 1000, completion_tokens: 100 },
       }),
     );
-    const { app } = buildTestApp({ ollamaUrl: ollama.url, bodiesDir, openaiLocalModels: ['gemma4:12b'] });
+    const { app } = buildTestApp({ ollamaUrl: ollama.url, bodiesDir });
     const client = TEST_CLIENTS.find((c) => c.name === 'portfolio')!;
 
     const chatRes = await app.request('/v1/chat/completions', {

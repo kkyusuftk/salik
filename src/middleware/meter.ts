@@ -107,6 +107,8 @@ export function createMeterMiddleware({ db, priceTable, bodiesDir }: MeterDeps) 
     const surface = c.get('surface');
     const upstream = c.get('upstream');
     const routedModel = c.get('model');
+    const requestedModel = c.get('requestedModel');
+    const fellBack = c.get('fellBack');
     const queueWaitMs = c.get('queueWaitMs');
     const preempted = c.get('preempted');
     const requestId = c.get('requestId');
@@ -122,10 +124,12 @@ export function createMeterMiddleware({ db, priceTable, bodiesDir }: MeterDeps) 
         surface,
         upstream,
         model,
+        requestedModel,
         status: res.status,
         latencyMs,
         queueWaitMs,
         preempted,
+        fellBack,
         usage,
         costUsd,
       });
@@ -137,7 +141,7 @@ export function createMeterMiddleware({ db, priceTable, bodiesDir }: MeterDeps) 
       console.log(
         `${ts} [${requestId}] ${client.name}/${tier} ${surface}->${upstream} model=${model ?? '-'} ` +
           `status=${res.status} latency=${latencyMs}ms queue=${queueWaitMs}ms` +
-          `${preempted ? ' PREEMPTED' : ''} cost=${costUsd !== null ? `$${costUsd.toFixed(6)}` : 'n/a'}`,
+          `${preempted ? ' PREEMPTED' : ''}${fellBack ? ' FALLBACK' : ''} cost=${costUsd !== null ? `$${costUsd.toFixed(6)}` : 'n/a'}`,
       );
 
       if (debugOn) {

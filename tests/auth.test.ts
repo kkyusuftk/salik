@@ -63,7 +63,7 @@ describe('auth middleware', () => {
       choices: [{ index: 0, message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }],
       usage: { prompt_tokens: 10, completion_tokens: 5 },
     }));
-    const { app, db } = buildTestApp({ ollamaUrl: ollama.url, bodiesDir, openaiLocalModels: ['gemma4:12b'] });
+    const { app, db } = buildTestApp({ ollamaUrl: ollama.url, bodiesDir });
 
     const portfolio = TEST_CLIENTS.find((c) => c.name === 'portfolio')!;
     const jobAgent = TEST_CLIENTS.find((c) => c.name === 'job-agent')!;

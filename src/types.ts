@@ -29,6 +29,10 @@ export type Surface = (typeof SURFACES)[number];
 export const UPSTREAMS = ['ollama', 'anthropic', 'openai'] as const;
 export type UpstreamName = (typeof UPSTREAMS)[number];
 
+export function isUpstreamName(x: unknown): x is UpstreamName {
+  return typeof x === 'string' && (UPSTREAMS as readonly string[]).includes(x);
+}
+
 export interface Client {
   token: string;
   name: string;
@@ -137,6 +141,84 @@ export function parsePriceTable(raw: unknown, sourcePath: string): PriceTable {
   return table;
 }
 
+// -------------------------------------------------------------- model registry
+
+// Models Salik serves through POST /v1/chat/completions — see config/models.json
+// and src/dispatch.ts. `provider` reuses UpstreamName rather than a parallel
+// enum: "which backend serves this" is the same concept whether it's decided
+// by the registry (here) or observed after the fact (RequestRow.upstream).
+export interface ModelEntry {
+  id: string;
+  provider: UpstreamName;
+  upstreamModel: string;
+  fallback?: string;
+}
+
+export interface ModelRegistry {
+  defaultFallback: string;
+  models: readonly ModelEntry[];
+  byId: ReadonlyMap<string, ModelEntry>;
+}
+
+/**
+ * Every `fallback` (including `defaultFallback`) must resolve to a real
+ * model id — a dangling reference is a startup error, not a runtime
+ * surprise, matching parseKeysFile/parsePriceTable's discipline. Only
+ * self-reference is rejected, not longer cycles: src/dispatch.ts only ever
+ * takes one hop, so a longer cycle can never actually be walked into at
+ * runtime. A model with no `fallback` that happens to BE `defaultFallback`
+ * itself is valid config — it just has no further fallback when it fails.
+ */
+export function parseModelRegistry(raw: unknown, sourcePath: string): ModelRegistry {
+  if (!isRecord(raw)) throw new Error(`${sourcePath}: expected a JSON object`);
+
+  const defaultFallback = raw['defaultFallback'];
+  if (typeof defaultFallback !== 'string' || !defaultFallback) {
+    throw new Error(`${sourcePath}: "defaultFallback" must be a non-empty string`);
+  }
+
+  const modelsRaw = raw['models'];
+  if (!Array.isArray(modelsRaw) || modelsRaw.length === 0) {
+    throw new Error(`${sourcePath}: "models" must be a non-empty array`);
+  }
+
+  const seen = new Set<string>();
+  const models = modelsRaw.map((entry, i): ModelEntry => {
+    if (!isRecord(entry)) throw new Error(`${sourcePath}: models[${i}] is not an object`);
+    const id = entry['id'];
+    const provider = entry['provider'];
+    const upstreamModel = entry['upstreamModel'];
+    const fallback = entry['fallback'];
+    if (typeof id !== 'string' || !id) throw new Error(`${sourcePath}: models[${i}].id must be a non-empty string`);
+    if (seen.has(id)) throw new Error(`${sourcePath}: duplicate model id "${id}" at models[${i}]`);
+    seen.add(id);
+    if (!isUpstreamName(provider)) {
+      throw new Error(`${sourcePath}: models[${i}].provider must be one of ${UPSTREAMS.join(', ')}`);
+    }
+    if (typeof upstreamModel !== 'string' || !upstreamModel) {
+      throw new Error(`${sourcePath}: models[${i}].upstreamModel must be a non-empty string`);
+    }
+    if (fallback !== undefined && (typeof fallback !== 'string' || !fallback)) {
+      throw new Error(`${sourcePath}: models[${i}].fallback must be a non-empty string if present`);
+    }
+    if (fallback === id) throw new Error(`${sourcePath}: models[${i}] ("${id}") names itself as its own fallback`);
+    return fallback === undefined ? { id, provider, upstreamModel } : { id, provider, upstreamModel, fallback };
+  });
+
+  const byId = new Map(models.map((m) => [m.id, m]));
+
+  if (!byId.has(defaultFallback)) {
+    throw new Error(`${sourcePath}: "defaultFallback" ("${defaultFallback}") is not the id of any model in "models"`);
+  }
+  for (const m of models) {
+    if (m.fallback !== undefined && !byId.has(m.fallback)) {
+      throw new Error(`${sourcePath}: "${m.id}".fallback ("${m.fallback}") is not the id of any model in "models"`);
+    }
+  }
+
+  return { defaultFallback, models, byId };
+}
+
 // -------------------------------------------------------------- usage / cost
 
 export interface Usage {
@@ -161,10 +243,12 @@ export interface RequestRow {
   surface: Surface;
   upstream: UpstreamName;
   model: string | null;
+  requestedModel: string | null; // the client's own `model` field, before any registry/fallback resolution
   status: number;
   latencyMs: number;
   queueWaitMs: number;
   preempted: boolean;
+  fellBack: boolean; // true when the model that served this request wasn't the one requested
   usage: Usage;
   costUsd: number | null; // null when the model has no pricing.json entry
 }
@@ -200,6 +284,13 @@ export interface AppVariables {
   surface: Surface;
   upstream: UpstreamName;
   model: string | null;
+  // The client's own `model` field, set once before any registry/fallback
+  // resolution and never overwritten — always equal to `model` on the three
+  // native passthrough routes, since only src/dispatch.ts can ever diverge them.
+  requestedModel: string | null;
+  // True only when src/dispatch.ts actually served a fallback model instead
+  // of the one requested. Always false on the native passthrough routes.
+  fellBack: boolean;
   queueWaitMs: number;
   preempted: boolean;
   // Only ever set when debug logging is actually active for this request
@@ -229,9 +320,7 @@ export interface Settings {
   upstreams: {
     ollama: UpstreamSettings;
     anthropic: UpstreamSettings & { defaultVersion: string };
-    // Model names in `localModels` route the OpenAI-compat surface to Ollama
-    // instead of to the real OpenAI API — see src/routes/openai.ts.
-    openai: UpstreamSettings & { localModels: string[] };
+    openai: UpstreamSettings;
   };
 }
 
@@ -262,12 +351,7 @@ export function parseSettings(raw: unknown, sourcePath: string): Settings {
     throw new Error(`${sourcePath}: upstreams.anthropic.defaultVersion must be a string`);
   }
 
-  const openaiRaw = upstreams['openai'];
-  const openai = parseUpstream(openaiRaw, `${sourcePath}: upstreams.openai`);
-  const localModelsRaw = isRecord(openaiRaw) ? openaiRaw['localModels'] : undefined;
-  if (!Array.isArray(localModelsRaw) || !localModelsRaw.every((m) => typeof m === 'string')) {
-    throw new Error(`${sourcePath}: upstreams.openai.localModels must be a string array`);
-  }
+  const openai = parseUpstream(upstreams['openai'], `${sourcePath}: upstreams.openai`);
 
   return {
     port,
@@ -279,7 +363,7 @@ export function parseSettings(raw: unknown, sourcePath: string): Settings {
     upstreams: {
       ollama,
       anthropic: { ...anthropic, defaultVersion },
-      openai: { ...openai, localModels: localModelsRaw as string[] },
+      openai,
     },
   };
 }

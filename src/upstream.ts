@@ -85,7 +85,9 @@ export async function forward(req: ForwardRequest): Promise<Response> {
   });
 }
 
-function isAbortError(err: unknown): boolean {
+// Exported for src/providers/anthropic/errors.ts and src/dispatch.ts, which
+// both need to distinguish "the client hung up" from any other failure.
+export function isAbortError(err: unknown): boolean {
   // Real fetch() aborts throw a DOMException, which — unlike the errors most
   // of this codebase throws — does not reliably extend Error in every
   // engine, so this checks `.name` directly rather than `instanceof Error`.

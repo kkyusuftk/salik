@@ -9,7 +9,7 @@ import { createApp } from '../src/app.ts';
 import { openDb } from '../src/db.ts';
 import { pruneOldBodies } from '../src/middleware/meter.ts';
 import { OllamaQueue } from '../src/queue.ts';
-import { parseKeysFile, parsePriceTable, parseSettings } from '../src/types.ts';
+import { parseKeysFile, parseModelRegistry, parsePriceTable, parseSettings } from '../src/types.ts';
 
 const ROOT = process.cwd();
 const resolve = (p: string) => path.resolve(ROOT, p);
@@ -20,6 +20,7 @@ function loadJson(relPath: string): unknown {
 
 const settings = parseSettings(loadJson('config/settings.json'), 'config/settings.json');
 const priceTable = parsePriceTable(loadJson('config/pricing.json'), 'config/pricing.json');
+const modelRegistry = parseModelRegistry(loadJson('config/models.json'), 'config/models.json');
 
 const keysPath = resolve('config/keys.json');
 if (!existsSync(keysPath)) {
@@ -91,6 +92,7 @@ const app = createApp({
   db,
   clients: keys.clients,
   priceTable,
+  modelRegistry,
   bodiesDir,
   queue,
   ollama: settings.upstreams.ollama,

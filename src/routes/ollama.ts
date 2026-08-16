@@ -25,11 +25,15 @@ export function createOllamaRoutes({ queue, url, timeoutMs }: OllamaRouteDeps) {
     c.set('surface', 'ollama');
     c.set('upstream', 'ollama');
     c.set('model', null);
+    c.set('requestedModel', null);
+    c.set('fellBack', false);
     c.set('queueWaitMs', 0);
     c.set('preempted', false);
 
     const rawBody = await c.req.arrayBuffer();
-    c.set('model', readModelHint(rawBody));
+    const model = readModelHint(rawBody);
+    c.set('model', model);
+    c.set('requestedModel', model);
 
     const client = c.get('client');
     if (client.debug || c.req.header('x-salik-debug') === '1') c.set('debugRequestBody', rawBody);
@@ -66,6 +70,8 @@ export function createOllamaRoutes({ queue, url, timeoutMs }: OllamaRouteDeps) {
       c.set('surface', 'ollama');
       c.set('upstream', 'ollama');
       c.set('model', null);
+      c.set('requestedModel', null);
+      c.set('fellBack', false);
       c.set('queueWaitMs', 0);
       c.set('preempted', false);
 

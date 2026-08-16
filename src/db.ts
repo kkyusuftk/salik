@@ -17,6 +17,17 @@ export function openDb(dbPath: string): Database {
   return db;
 }
 
+/**
+ * `CREATE TABLE IF NOT EXISTS` is a no-op against an already-existing
+ * on-disk table, so it won't retroactively add a column to someone's live
+ * data/salik.db — this fills that gap for columns added after the table
+ * already shipped.
+ */
+function addColumnIfMissing(db: Database, table: string, column: string, ddl: string): void {
+  const cols = db.query<{ name: string }, []>(`PRAGMA table_info(${table})`).all();
+  if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+}
+
 function migrate(db: Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS requests (
@@ -47,14 +58,22 @@ function migrate(db: Database): void {
       PRIMARY KEY (client, date)
     );
   `);
+
+  // requested_model/fell_back: added after the table shipped — see
+  // src/dispatch.ts. requested_model is the client's own `model` field
+  // before any fallback resolution; model keeps meaning "the real upstream
+  // string that answered". Always in lockstep on the three native
+  // passthrough routes, which never fall back.
+  addColumnIfMissing(db, 'requests', 'requested_model', 'TEXT');
+  addColumnIfMissing(db, 'requests', 'fell_back', 'INTEGER NOT NULL DEFAULT 0');
 }
 
 export function insertRequest(db: Database, row: RequestRow): void {
   db.query(`
     INSERT INTO requests (
-      ts, client, tier, surface, upstream, model, status, latency_ms, queue_wait_ms,
-      preempted, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ts, client, tier, surface, upstream, model, requested_model, status, latency_ms, queue_wait_ms,
+      preempted, fell_back, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_usd
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     row.ts,
     row.client,
@@ -62,10 +81,12 @@ export function insertRequest(db: Database, row: RequestRow): void {
     row.surface,
     row.upstream,
     row.model,
+    row.requestedModel,
     row.status,
     row.latencyMs,
     row.queueWaitMs,
     row.preempted ? 1 : 0,
+    row.fellBack ? 1 : 0,
     row.usage.inputTokens,
     row.usage.outputTokens,
     row.usage.cacheReadTokens,

@@ -17,21 +17,23 @@ import { createBudgetMiddleware } from './middleware/budget.ts';
 import { createMeterMiddleware } from './middleware/meter.ts';
 import type { OllamaQueue } from './queue.ts';
 import { createAnthropicRoutes } from './routes/anthropic.ts';
+import { createModelsRoutes } from './routes/models.ts';
 import { createOllamaRoutes } from './routes/ollama.ts';
 import { createOpenAiRoutes } from './routes/openai.ts';
 import { createStatusRoutes } from './routes/status.ts';
 import { toErrorResponse } from './upstream.ts';
-import type { AppEnv, Client, PriceTable } from './types.ts';
+import type { AppEnv, Client, ModelRegistry, PriceTable } from './types.ts';
 
 export interface AppDeps {
   db: Database;
   clients: readonly Client[];
   priceTable: PriceTable;
+  modelRegistry: ModelRegistry;
   bodiesDir: string;
   queue: OllamaQueue;
   ollama: { url: string; timeoutMs: number };
   anthropic: { url: string; timeoutMs: number; apiKey: string; defaultVersion: string };
-  openai: { url: string; timeoutMs: number; localModels: readonly string[]; apiKey: string };
+  openai: { url: string; timeoutMs: number; apiKey: string };
   /** hono/logger (or similar) — omitted in tests to keep output quiet. */
   requestLogger?: MiddlewareHandler<AppEnv>;
 }
@@ -54,12 +56,22 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
 
   for (const p of PROXIED_PATHS) app.use(p, authMw, budgetMw, meterMw);
   // Auth only — no budget gate (checking status must still work when over
-  // budget) and no meter row (it isn't a billable model call) — see
-  // src/routes/status.ts.
+  // budget) and no meter row (neither is a billable model call) — see
+  // src/routes/status.ts and src/routes/models.ts.
   app.use('/api/salik/status', authMw);
+  app.use('/v1/models', authMw);
 
   app.route('/', createOllamaRoutes({ queue: deps.queue, url: deps.ollama.url, timeoutMs: deps.ollama.timeoutMs }));
-  app.route('/', createOpenAiRoutes({ queue: deps.queue, ollama: deps.ollama, openai: deps.openai }));
+  app.route(
+    '/',
+    createOpenAiRoutes({
+      registry: deps.modelRegistry,
+      queue: deps.queue,
+      ollama: deps.ollama,
+      anthropic: deps.anthropic,
+      openai: deps.openai,
+    }),
+  );
   app.route(
     '/',
     createAnthropicRoutes({
@@ -70,6 +82,7 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
     }),
   );
   app.route('/', createStatusRoutes({ queue: deps.queue, db: deps.db }));
+  app.route('/', createModelsRoutes({ registry: deps.modelRegistry }));
 
   // Last-resort safety net. Every route is expected to convert its own
   // errors via toErrorResponse() already (see src/routes/*.ts) — this only

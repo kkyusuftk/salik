@@ -92,7 +92,7 @@ describe('byte-exact passthrough', () => {
       tools: [{ type: 'function', function: { name: 'RecordReceipt', parameters: { type: 'object', properties: {} } } }],
     });
 
-    const { app } = buildTestApp({ ollamaUrl: ollama.url, bodiesDir, openaiLocalModels: ['gemma4:12b'] });
+    const { app } = buildTestApp({ ollamaUrl: ollama.url, bodiesDir });
     const res = await app.request('/v1/chat/completions', {
       method: 'POST',
       headers: authHeaders(TOKEN, { 'content-type': 'application/json' }),
@@ -116,7 +116,7 @@ describe('byte-exact passthrough', () => {
       tools: [{ type: 'function', function: { name: 'RecordReceipt', parameters: {} } }],
     });
 
-    const { app } = buildTestApp({ ollamaUrl: ollama.url, bodiesDir, openaiLocalModels: ['gemma4:12b'] });
+    const { app } = buildTestApp({ ollamaUrl: ollama.url, bodiesDir });
     const res = await app.request('/v1/chat/completions', {
       method: 'POST',
       headers: authHeaders(TOKEN, { 'content-type': 'application/json' }),

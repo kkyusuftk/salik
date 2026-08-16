@@ -10,7 +10,9 @@ Run more than one LLM-backed project against a single local model and you hit th
 
 Salik centralises that instead of letting it multiply:
 
-- **One endpoint, three wire formats** — OpenAI-compatible, Ollama-native, and Anthropic passthrough. Point an existing client at Salik's base URL and nothing else about its request/response code has to change.
+- **One unified endpoint** — `POST /v1/chat/completions` speaks OpenAI's chat-completions schema regardless of which backend actually serves the request. Models are specified upfront in `config/models.json`; a model backed by Anthropic is transparently translated to and from Anthropic's own wire format, so an OpenAI-compatible client can reach every configured model without knowing or caring which provider it's actually on.
+- **A configured default fallback** — every model can name its own one-hop fallback, or fall back to a single server-wide default. If a call fails (a non-2xx response, a network error, a timeout — never a preemption, never a client disconnect), Salik retries once against the fallback before giving up, and flags the substitution in its own metering so it's never silent.
+- **The original native passthrough surfaces are still there** — Ollama-native (`/api/chat`) and Anthropic-native (`/v1/messages`) remain untouched, byte-exact, for clients that need a provider's own dialect verbatim (Ollama's `format`/`think:false`, Anthropic's `cache_control`).
 - **A real priority queue over the one local slot** — every client is tagged with a tier; a higher-tier request preempts a lower-tier one instead of queueing behind it, and the preempted caller gets an unambiguous `409` back, not a stall.
 - **Centralised cloud credentials** — Salik holds the real Anthropic/OpenAI keys; every client gets its own scoped Salik token instead.
 - **Metering by default** — every request lands one row in SQLite: client, tier, model, tokens, latency, and cost. Bodies are never logged unless a client explicitly opts in.
@@ -45,7 +47,7 @@ Generate a token per client:
 openssl rand -hex 32
 ```
 
-Edit `config/settings.json` for your own upstream URLs/ports if they differ from the defaults (`http://127.0.0.1:11434` for Ollama), and `config/pricing.json` for the models you actually bill against — see its own comment for why unpriced models are left out rather than guessed at.
+Edit `config/settings.json` for your own upstream URLs/ports if they differ from the defaults (`http://127.0.0.1:11434` for Ollama), `config/models.json` for which models `/v1/chat/completions` serves and their fallback wiring, and `config/pricing.json` for the models you actually bill against — see its own comment for why unpriced models are left out rather than guessed at.
 
 ```bash
 bun server/server.ts          # foreground, for a first run
@@ -75,14 +77,16 @@ The test suite's centrepiece is byte-exactness through the Hono layer: every for
 ```
 server/server.ts       entry point: load config, open the db, wire the app, serve
 src/app.ts             the Hono app assembly — which paths get auth/budget/meter
-src/routes/            one file per wire surface (openai, ollama, anthropic, status)
+src/dispatch.ts         model-registry lookup + provider dispatch + one-hop fallback
+src/providers/anthropic/ OpenAI <-> Anthropic request/response/streaming translation
+src/routes/            one file per wire surface (openai, ollama, anthropic, status, models)
 src/middleware/         auth, budget, meter
 src/queue.ts            the single Ollama slot: priority queue + preemption
 src/upstream.ts         byte-exact forward + header hygiene
 src/pricing.ts          usage extraction per surface + cost from config/pricing.json
 src/db.ts               bun:sqlite schema
-src/types.ts            Salik's own state — Tier, Client, QueueState, config validation
-config/                 settings, pricing, and (gitignored) keys
+src/types.ts            Salik's own state — Tier, Client, ModelRegistry, QueueState, config validation
+config/                 settings, models, pricing, and (gitignored) keys
 ops/                    launchd plist, install script, log rotation
 tests/                  fake upstreams + the full suite
 ```
@@ -94,4 +98,4 @@ Two files are gitignored and yours alone — real client tokens and real cloud A
 - [config/keys.json](config/keys.json.example) — `upstreamKeys` (Salik's own Anthropic/OpenAI credentials) and `clients` (per-client token, tier, daily budget).
 - `data/` — SQLite db, logs, and (only if a client opts into debug logging) request/response bodies. Never committed.
 
-Everything else — `config/settings.json`, `config/pricing.json` — is committed; both are validated at startup, so a malformed edit fails loudly on the next restart instead of running with a silently-wrong config.
+Everything else — `config/settings.json`, `config/models.json`, `config/pricing.json` — is committed; all three are validated at startup, so a malformed edit fails loudly on the next restart instead of running with a silently-wrong config.

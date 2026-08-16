@@ -1,82 +1,64 @@
-// OpenAI-compat surface: POST /v1/chat/completions. Routes to one of two
-// upstreams by `model` — Ollama's own OpenAI-compat endpoint for local model
-// names (trip-agent vision, receipt-analyzer), real api.openai.com for
-// everything else (portfolio's OpenAiRunner fallback). Both are the SAME
-// wire format, unlike src/routes/anthropic.ts, which is why one route
-// handles both destinations.
+// OpenAI-compat surface: POST /v1/chat/completions — the one unified
+// interface. Every configured model (config/models.json) is reachable here
+// regardless of which backend actually serves it; src/dispatch.ts resolves
+// the model, dispatches to the right provider (translating for Anthropic-
+// backed models), and falls back once if the primary attempt fails.
 //
-// The local branch goes through the exact same OllamaQueue instance
-// src/routes/ollama.ts uses — there is only one physical Ollama slot,
-// regardless of which surface a request arrived on.
+// The route itself stays thin: read enough to look the model up, call
+// dispatch(), map its outcome (or thrown Preempted/UnknownModelError) onto
+// the response and the metering context vars.
 import { Hono } from 'hono';
+import { dispatch, UnknownModelError, type DispatchDeps } from '../dispatch.ts';
 import { readModelHint } from '../pricing.ts';
-import { Preempted, type OllamaQueue } from '../queue.ts';
-import { forward, prepareRequestHeaders, toErrorResponse } from '../upstream.ts';
+import { toOpenAiErrorResponse } from '../providers/anthropic/index.ts';
+import { Preempted } from '../queue.ts';
+import { prepareRequestHeaders } from '../upstream.ts';
 import type { AppEnv } from '../types.ts';
 
-export interface OpenAiRouteDeps {
-  queue: OllamaQueue;
-  ollama: { url: string; timeoutMs: number };
-  openai: { url: string; timeoutMs: number; localModels: readonly string[]; apiKey: string };
-}
-
-export function createOpenAiRoutes({ queue, ollama, openai }: OpenAiRouteDeps) {
+export function createOpenAiRoutes(deps: DispatchDeps) {
   const app = new Hono<AppEnv>();
 
   app.post('/v1/chat/completions', async (c) => {
     c.set('surface', 'openai');
-    c.set('upstream', 'openai'); // placeholder; corrected below once the model is known
+    c.set('upstream', 'openai'); // placeholder; corrected below once dispatch resolves
     c.set('model', null);
+    c.set('requestedModel', null);
+    c.set('fellBack', false);
     c.set('queueWaitMs', 0);
     c.set('preempted', false);
 
     const rawBody = await c.req.arrayBuffer();
-    const model = readModelHint(rawBody);
-    c.set('model', model);
+    const requestedModel = readModelHint(rawBody);
+    c.set('requestedModel', requestedModel);
 
     const client = c.get('client');
     if (client.debug || c.req.header('x-salik-debug') === '1') c.set('debugRequestBody', rawBody);
 
-    const headers = prepareRequestHeaders(c.req.raw.headers);
-    headers.set('content-type', 'application/json');
-
-    const isLocal = model !== null && openai.localModels.includes(model);
-    c.set('upstream', isLocal ? 'ollama' : 'openai');
-
-    if (isLocal) {
-      headers.set('authorization', 'Bearer local');
-      try {
-        const { value, queueWaitMs } = await queue.run(c.get('tier'), client.name, c.req.raw.signal, (signal) =>
-          forward({
-            method: 'POST',
-            url: `${ollama.url}/v1/chat/completions`,
-            headers,
-            body: rawBody,
-            signal: AbortSignal.any([signal, AbortSignal.timeout(ollama.timeoutMs)]),
-          }),
-        );
-        c.set('queueWaitMs', queueWaitMs);
-        return value;
-      } catch (err) {
-        if (err instanceof Preempted) {
-          c.set('preempted', true);
-          return c.json({ error: { type: 'salik_preempted', message: err.message } }, 409);
-        }
-        return toErrorResponse(err);
-      }
+    if (requestedModel === null) {
+      return Response.json(
+        { error: { message: '"model" is required', type: 'invalid_request_error', param: 'model', code: null } },
+        { status: 400 },
+      );
     }
 
-    headers.set('authorization', `Bearer ${openai.apiKey}`);
+    const headers = prepareRequestHeaders(c.req.raw.headers);
+
     try {
-      return await forward({
-        method: 'POST',
-        url: `${openai.url}/v1/chat/completions`,
-        headers,
-        body: rawBody,
-        signal: AbortSignal.any([c.req.raw.signal, AbortSignal.timeout(openai.timeoutMs)]),
-      });
+      const outcome = await dispatch(deps, requestedModel, rawBody, headers, c.get('tier'), client.name, c.req.raw.signal);
+      c.set('upstream', outcome.servedBy.provider);
+      c.set('model', outcome.servedBy.upstreamModel);
+      c.set('fellBack', outcome.fellBack);
+      c.set('queueWaitMs', outcome.queueWaitMs);
+      return outcome.response;
     } catch (err) {
-      return toErrorResponse(err);
+      if (err instanceof Preempted) {
+        c.set('preempted', true);
+        return c.json({ error: { type: 'salik_preempted', message: err.message } }, 409);
+      }
+      if (err instanceof UnknownModelError) {
+        return Response.json({ error: { message: err.message, type: 'salik_unknown_model', param: null, code: null } }, { status: 404 });
+      }
+      return toOpenAiErrorResponse(err);
     }
   });
 

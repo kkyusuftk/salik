@@ -7,7 +7,7 @@ import type { Hono } from 'hono';
 import { createApp } from '../src/app.ts';
 import { openDb } from '../src/db.ts';
 import { OllamaQueue } from '../src/queue.ts';
-import type { AppEnv, Client, PriceTable } from '../src/types.ts';
+import type { AppEnv, Client, ModelEntry, ModelRegistry, PriceTable } from '../src/types.ts';
 
 export const TEST_CLIENTS: Client[] = [
   { token: 'tok-interactive', name: 'portfolio', tier: 'interactive', dailyBudgetUsd: 2.0, debug: false },
@@ -26,15 +26,28 @@ export const TEST_PRICE_TABLE: PriceTable = {
   'gemma4:12b': [{ input: 0, output: 0 }],
 };
 
+const TEST_MODELS: ModelEntry[] = [
+  { id: 'claude-sonnet-5', provider: 'anthropic', upstreamModel: 'claude-sonnet-5' },
+  { id: 'claude-opus-5', provider: 'anthropic', upstreamModel: 'claude-opus-5' },
+  { id: 'claude-haiku-4-5', provider: 'anthropic', upstreamModel: 'claude-haiku-4-5' },
+  { id: 'gemma4:12b', provider: 'ollama', upstreamModel: 'gemma4:12b' },
+];
+
+export const TEST_MODEL_REGISTRY: ModelRegistry = {
+  defaultFallback: 'claude-haiku-4-5',
+  models: TEST_MODELS,
+  byId: new Map(TEST_MODELS.map((m) => [m.id, m])),
+};
+
 export interface TestAppOptions {
   clients?: Client[];
   priceTable?: PriceTable;
+  modelRegistry?: ModelRegistry;
   ollamaUrl: string;
   anthropicUrl?: string;
   anthropicApiKey?: string;
   openaiUrl?: string;
   openaiApiKey?: string;
-  openaiLocalModels?: string[];
   timeoutMs?: number;
   bodiesDir: string;
 }
@@ -54,6 +67,7 @@ export function buildTestApp(opts: TestAppOptions): TestApp {
     db,
     clients: opts.clients ?? TEST_CLIENTS,
     priceTable: opts.priceTable ?? TEST_PRICE_TABLE,
+    modelRegistry: opts.modelRegistry ?? TEST_MODEL_REGISTRY,
     bodiesDir: opts.bodiesDir,
     queue,
     ollama: { url: opts.ollamaUrl, timeoutMs },
@@ -66,7 +80,6 @@ export function buildTestApp(opts: TestAppOptions): TestApp {
     openai: {
       url: opts.openaiUrl ?? 'http://127.0.0.1:1', // unused unless a test opts in
       timeoutMs,
-      localModels: opts.openaiLocalModels ?? [],
       apiKey: opts.openaiApiKey ?? 'test-openai-key',
     },
     // No requestLogger: hono/logger's console noise isn't useful in tests.

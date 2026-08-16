@@ -7,7 +7,10 @@
 import { Buffer } from 'node:buffer';
 import { isRecord, type ExtractedUsage, type PriceEntry, type PriceTable, type Surface, type Usage, ZERO_USAGE } from './types.ts';
 
-function tryParseJson(text: string): unknown {
+// Exported for src/providers/anthropic/ to reuse rather than re-derive —
+// these three are the only bits of Anthropic-wire-shape parsing this file
+// and that module both need.
+export function tryParseJson(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
@@ -15,13 +18,13 @@ function tryParseJson(text: string): unknown {
   }
 }
 
-function numberOr(x: unknown, fallback: number): number {
+export function numberOr(x: unknown, fallback: number): number {
   return typeof x === 'number' && Number.isFinite(x) ? x : fallback;
 }
 
 // ---------------------------------------------------------------- anthropic
 
-function usageFromAnthropicObject(obj: Record<string, unknown>): ExtractedUsage {
+export function usageFromAnthropicObject(obj: Record<string, unknown>): ExtractedUsage {
   const model = typeof obj['model'] === 'string' ? obj['model'] : null;
   const usage = obj['usage'];
   if (!isRecord(usage)) return { model, ...ZERO_USAGE };
