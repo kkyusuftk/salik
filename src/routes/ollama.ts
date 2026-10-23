@@ -3,10 +3,10 @@
 // bypass the queue entirely. They're metadata reads that don't touch the
 // model, so they don't compete for the slot — see PLAN.md's "core invariant".
 import { Hono } from 'hono';
-import { readModelHint } from '../pricing.ts';
+import { salikErrorBody } from '../errors.ts';
 import { Preempted, type OllamaQueue } from '../queue.ts';
 import { forward, prepareRequestHeaders, toErrorResponse } from '../upstream.ts';
-import type { AppEnv } from '../types.ts';
+import type { AppEnv } from '../context.ts';
 
 export interface OllamaRouteDeps {
   queue: OllamaQueue;
@@ -20,24 +20,11 @@ export function createOllamaRoutes({ queue, url, timeoutMs }: OllamaRouteDeps) {
   const app = new Hono<AppEnv>();
 
   app.post('/api/chat', async (c) => {
-    // Set before any await: if arrayBuffer() itself throws, meter still has
-    // something coherent to record rather than an unset context variable.
-    c.set('surface', 'ollama');
-    c.set('upstream', 'ollama');
-    c.set('model', null);
-    c.set('requestedModel', null);
-    c.set('fellBack', false);
-    c.set('queueWaitMs', 0);
-    c.set('preempted', false);
-
-    const rawBody = await c.req.arrayBuffer();
-    const model = readModelHint(rawBody);
-    c.set('model', model);
-    c.set('requestedModel', model);
+    // Context defaults, raw-body read, model hint, and debug capture are all
+    // owned by the shared prologue middleware (src/middleware/prologue.ts).
+    const rawBody = c.get('rawRequestBody');
 
     const client = c.get('client');
-    if (client.debug || c.req.header('x-salik-debug') === '1') c.set('debugRequestBody', rawBody);
-
     const headers = prepareRequestHeaders(c.req.raw.headers);
     headers.set('authorization', 'Bearer local'); // Ollama ignores auth; kept for parity with existing clients
     headers.set('content-type', 'application/json');
@@ -57,7 +44,7 @@ export function createOllamaRoutes({ queue, url, timeoutMs }: OllamaRouteDeps) {
     } catch (err) {
       if (err instanceof Preempted) {
         c.set('preempted', true);
-        return c.json({ error: { type: 'salik_preempted', message: err.message } }, 409);
+        return Response.json(salikErrorBody('salik_preempted', err.message), { status: 409 });
       }
       // Converted here, not rethrown — see toErrorResponse()'s own comment
       // for why relying on Hono's onError for this is not safe enough.
@@ -67,14 +54,6 @@ export function createOllamaRoutes({ queue, url, timeoutMs }: OllamaRouteDeps) {
 
   for (const p of HEALTH_PATHS) {
     app.get(p, async (c) => {
-      c.set('surface', 'ollama');
-      c.set('upstream', 'ollama');
-      c.set('model', null);
-      c.set('requestedModel', null);
-      c.set('fellBack', false);
-      c.set('queueWaitMs', 0);
-      c.set('preempted', false);
-
       const headers = prepareRequestHeaders(c.req.raw.headers);
       try {
         return await forward({

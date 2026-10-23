@@ -15,6 +15,7 @@ import type { Database } from 'bun:sqlite';
 import { createAuthMiddleware } from './middleware/auth.ts';
 import { createBudgetMiddleware } from './middleware/budget.ts';
 import { createMeterMiddleware } from './middleware/meter.ts';
+import { createPrologueMiddleware } from './middleware/prologue.ts';
 import type { OllamaQueue } from './queue.ts';
 import { createAnthropicRoutes } from './routes/anthropic.ts';
 import { createModelsRoutes } from './routes/models.ts';
@@ -22,7 +23,8 @@ import { createOllamaRoutes } from './routes/ollama.ts';
 import { createOpenAiRoutes } from './routes/openai.ts';
 import { createStatusRoutes } from './routes/status.ts';
 import { toErrorResponse } from './upstream.ts';
-import type { AppEnv, Client, ModelRegistry, PriceTable } from './types.ts';
+import type { Client, ModelRegistry, PriceTable } from './config.ts';
+import type { AppEnv } from './context.ts';
 
 export interface AppDeps {
   db: Database;
@@ -38,12 +40,28 @@ export interface AppDeps {
   requestLogger?: MiddlewareHandler<AppEnv>;
 }
 
-// Every path a real model call can arrive on — auth, budget, and metering all
-// apply. Kept as an explicit list rather than discovered dynamically: the set
-// is small and fixed by PLAN.md's API-surfaces table, and an explicit list is
-// what makes the scoping bug described above impossible to reintroduce by
-// accident. Update this alongside src/routes/*.ts if a new proxied path is added.
-const PROXIED_PATHS = ['/api/chat', '/api/tags', '/api/ps', '/api/version', '/v1/chat/completions', '/v1/messages'] as const;
+// Every path a real model call can arrive on — auth, budget, metering, and
+// the shared prologue (context defaults + body read + model hint + debug
+// capture) all apply. Kept as an explicit list rather than discovered
+// dynamically: the set is small and fixed by PLAN.md's API-surfaces table,
+// and an explicit list is what makes the scoping bug described above
+// impossible to reintroduce by accident. Update this alongside src/routes/*.ts
+// if a new proxied path is added.
+interface ProxiedPath {
+  path: string;
+  surface: 'ollama' | 'openai' | 'anthropic';
+  /** Native passthrough surfaces set `model` from the request hint; the unified dispatch surface doesn't (dispatch owns `model`). */
+  hintSetsModel: boolean;
+}
+
+const PROXIED_PATHS: readonly ProxiedPath[] = [
+  { path: '/api/chat', surface: 'ollama', hintSetsModel: true },
+  { path: '/api/tags', surface: 'ollama', hintSetsModel: true },
+  { path: '/api/ps', surface: 'ollama', hintSetsModel: true },
+  { path: '/api/version', surface: 'ollama', hintSetsModel: true },
+  { path: '/v1/chat/completions', surface: 'openai', hintSetsModel: false },
+  { path: '/v1/messages', surface: 'anthropic', hintSetsModel: true },
+];
 
 export function createApp(deps: AppDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -53,12 +71,20 @@ export function createApp(deps: AppDeps): Hono<AppEnv> {
   const authMw = createAuthMiddleware(deps.clients);
   const budgetMw = createBudgetMiddleware(deps.db);
   const meterMw = createMeterMiddleware({ db: deps.db, priceTable: deps.priceTable, bodiesDir: deps.bodiesDir });
+  // Per-path because the prologue stamps the surface/upstream the path serves.
+  const prologueByPath = new Map(
+    PROXIED_PATHS.map((p) => [
+      p.path,
+      createPrologueMiddleware({ surface: p.surface, upstream: p.surface, hintSetsModel: p.hintSetsModel }),
+    ]),
+  );
 
-  for (const p of PROXIED_PATHS) app.use(p, authMw, budgetMw, meterMw);
+  for (const { path } of PROXIED_PATHS) app.use(path, authMw, budgetMw, meterMw, prologueByPath.get(path)!);
   // Auth only — no budget gate (checking status must still work when over
   // budget) and no meter row (neither is a billable model call) — see
   // src/routes/status.ts and src/routes/models.ts.
   app.use('/api/salik/status', authMw);
+  app.use('/api/salik/usage', authMw);
   app.use('/v1/models', authMw);
 
   app.route('/', createOllamaRoutes({ queue: deps.queue, url: deps.ollama.url, timeoutMs: deps.ollama.timeoutMs }));

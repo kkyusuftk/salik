@@ -1,37 +1,11 @@
-// Salik's own state — the one place types earn their keep. Nothing here
-// describes an upstream request or response body; see the note on that in
-// PLAN.md ("Type strategy"). Everything is `as const` objects with derived
-// unions rather than `enum`, per the same section.
+// Config-file parsing and validation: keys.json, pricing.json, models.json,
+// settings.json. Each parse* runs once at startup so no later code ever sees
+// an unvalidated JSON.parse result — a gateway that starts with silently-wrong
+// config is worse than one that refuses to start.
+import { isRecord } from './json.ts';
+import { isTier, TIERS, type Tier, UPSTREAMS, type UpstreamName, isUpstreamName } from './wire.ts';
 
-export const TIERS = ['interactive', 'chat', 'batch'] as const;
-export type Tier = (typeof TIERS)[number];
-
-export function isTier(x: unknown): x is Tier {
-  return typeof x === 'string' && (TIERS as readonly string[]).includes(x);
-}
-
-// Lower rank = higher priority. A Record over a finite literal union is a
-// fixed set of required properties, not an index signature, so this stays
-// `number` (not `number | undefined`) under noUncheckedIndexedAccess.
-export const TIER_RANK: Record<Tier, number> = {
-  interactive: 0,
-  chat: 1,
-  batch: 2,
-};
-
-// The wire surface a request arrived on.
-export const SURFACES = ['openai', 'ollama', 'anthropic'] as const;
-export type Surface = (typeof SURFACES)[number];
-
-// Which real backend a request was actually forwarded to. Distinct from
-// Surface: the `openai` surface can land on either `ollama` (local models) or
-// `openai` (everything else) depending on the `model` field.
-export const UPSTREAMS = ['ollama', 'anthropic', 'openai'] as const;
-export type UpstreamName = (typeof UPSTREAMS)[number];
-
-export function isUpstreamName(x: unknown): x is UpstreamName {
-  return typeof x === 'string' && (UPSTREAMS as readonly string[]).includes(x);
-}
+// -------------------------------------------------------------- keys.json
 
 export interface Client {
   token: string;
@@ -49,15 +23,9 @@ export interface KeysFile {
   clients: Client[];
 }
 
-export function isRecord(x: unknown): x is Record<string, unknown> {
-  return typeof x === 'object' && x !== null && !Array.isArray(x);
-}
-
 /**
- * Validated once at startup so every later `c.get('client')` is a real
- * Client, not `any` off a JSON.parse. Throws with a field-specific message —
- * a gateway that starts with a silently-wrong client list is worse than one
- * that refuses to start.
+ * Throws with a field-specific message — see the file-header note on
+ * refusing to start with bad config.
  */
 export function parseKeysFile(raw: unknown, sourcePath: string): KeysFile {
   if (!isRecord(raw)) throw new Error(`${sourcePath}: expected a JSON object`);
@@ -99,7 +67,7 @@ export function parseKeysFile(raw: unknown, sourcePath: string): KeysFile {
   return { upstreamKeys: { anthropic: anthropicKey, openai: openaiKey }, clients };
 }
 
-// -------------------------------------------------------------- pricing
+// -------------------------------------------------------------- pricing.json
 
 export interface PriceEntry {
   input: number; // $ per million input tokens
@@ -141,7 +109,7 @@ export function parsePriceTable(raw: unknown, sourcePath: string): PriceTable {
   return table;
 }
 
-// -------------------------------------------------------------- model registry
+// -------------------------------------------------------------- models.json
 
 // Models Salik serves through POST /v1/chat/completions — see config/models.json
 // and src/dispatch.ts. `provider` reuses UpstreamName rather than a parallel
@@ -219,91 +187,7 @@ export function parseModelRegistry(raw: unknown, sourcePath: string): ModelRegis
   return { defaultFallback, models, byId };
 }
 
-// -------------------------------------------------------------- usage / cost
-
-export interface Usage {
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number;
-  cacheWriteTokens: number;
-}
-
-export const ZERO_USAGE: Usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
-
-export interface ExtractedUsage extends Usage {
-  model: string | null;
-}
-
-// -------------------------------------------------------------- requests log
-
-export interface RequestRow {
-  ts: string;
-  client: string;
-  tier: Tier;
-  surface: Surface;
-  upstream: UpstreamName;
-  model: string | null;
-  requestedModel: string | null; // the client's own `model` field, before any registry/fallback resolution
-  status: number;
-  latencyMs: number;
-  queueWaitMs: number;
-  preempted: boolean;
-  fellBack: boolean; // true when the model that served this request wasn't the one requested
-  usage: Usage;
-  costUsd: number | null; // null when the model has no pricing.json entry
-}
-
-// -------------------------------------------------------------- queue state
-
-// The observable state of the single Ollama slot. A discriminated union so a
-// switch over `kind` that forgets a case is a compile error, not a stuck slot.
-export type QueueState =
-  | { kind: 'idle' }
-  | { kind: 'occupied'; tier: Tier; client: string; startedAt: number };
-
-export interface QueuePendingSummary {
-  tier: Tier;
-  count: number;
-}
-
-export interface QueueStatus {
-  slot: QueueState;
-  pending: QueuePendingSummary[];
-}
-
-// -------------------------------------------------------------- Hono context
-//
-// The main reason Hono + TS earns its place over either alone: c.get('client')
-// is checked against this shape instead of coming back `any`. Every field is
-// set unconditionally and early by whichever route/middleware owns it, so a
-// later `c.get()` is never reading a value nobody wrote.
-export interface AppVariables {
-  client: Client;
-  tier: Tier;
-  requestId: string;
-  surface: Surface;
-  upstream: UpstreamName;
-  model: string | null;
-  // The client's own `model` field, set once before any registry/fallback
-  // resolution and never overwritten — always equal to `model` on the three
-  // native passthrough routes, since only src/dispatch.ts can ever diverge them.
-  requestedModel: string | null;
-  // True only when src/dispatch.ts actually served a fallback model instead
-  // of the one requested. Always false on the native passthrough routes.
-  fellBack: boolean;
-  queueWaitMs: number;
-  preempted: boolean;
-  // Only ever set when debug logging is actually active for this request
-  // (see src/middleware/meter.ts) — genuinely absent otherwise, unlike the
-  // fields above which are always given a default.
-  debugRequestBody?: ArrayBuffer;
-}
-
-export interface AppEnv {
-  Variables: AppVariables;
-}
-
-// -------------------------------------------------------------- settings
+// -------------------------------------------------------------- settings.json
 
 export interface UpstreamSettings {
   url: string;
@@ -322,6 +206,15 @@ export interface Settings {
     anthropic: UpstreamSettings & { defaultVersion: string };
     openai: UpstreamSettings;
   };
+}
+
+function parseUpstream(raw: unknown, label: string): UpstreamSettings {
+  if (!isRecord(raw)) throw new Error(`${label} must be an object`);
+  const url = raw['url'];
+  const timeoutMs = raw['timeoutMs'];
+  if (typeof url !== 'string') throw new Error(`${label}.url must be a string`);
+  if (typeof timeoutMs !== 'number') throw new Error(`${label}.timeoutMs must be a number`);
+  return { url, timeoutMs };
 }
 
 export function parseSettings(raw: unknown, sourcePath: string): Settings {
@@ -366,13 +259,4 @@ export function parseSettings(raw: unknown, sourcePath: string): Settings {
       openai,
     },
   };
-}
-
-function parseUpstream(raw: unknown, label: string): UpstreamSettings {
-  if (!isRecord(raw)) throw new Error(`${label} must be an object`);
-  const url = raw['url'];
-  const timeoutMs = raw['timeoutMs'];
-  if (typeof url !== 'string') throw new Error(`${label}.url must be a string`);
-  if (typeof timeoutMs !== 'number') throw new Error(`${label}.timeoutMs must be a number`);
-  return { url, timeoutMs };
 }

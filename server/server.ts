@@ -9,7 +9,7 @@ import { createApp } from '../src/app.ts';
 import { openDb } from '../src/db.ts';
 import { pruneOldBodies } from '../src/middleware/meter.ts';
 import { OllamaQueue } from '../src/queue.ts';
-import { parseKeysFile, parseModelRegistry, parsePriceTable, parseSettings } from '../src/types.ts';
+import { parseKeysFile, parseModelRegistry, parsePriceTable, parseSettings } from '../src/config.ts';
 
 const ROOT = process.cwd();
 const resolve = (p: string) => path.resolve(ROOT, p);

@@ -4,7 +4,7 @@
 import { Database } from 'bun:sqlite';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
-import type { RequestRow } from './types.ts';
+import type { RequestRow } from './wire.ts';
 
 export function openDb(dbPath: string): Database {
   mkdirSync(path.dirname(dbPath), { recursive: true });
@@ -122,6 +122,101 @@ export function spendByClientToday(db: Database, date: string): ClientSpendRow[]
   return db
     .query<ClientSpendRow, [string]>('SELECT client, cost_usd FROM daily_spend WHERE date = ? ORDER BY cost_usd DESC')
     .all(date);
+}
+
+// ------------------------------------------------------------------ usage
+//
+// Token accounting, read straight off the `requests` ledger rather than from a
+// rollup table. `daily_spend` exists because src/middleware/budget.ts has to
+// answer "am I over?" on the hot path of every request; nothing is on the hot
+// path here, and a pre-aggregated hourly table would be a second source of
+// truth to keep honest for no gain — SQLite groups 100k rows of this in
+// milliseconds, and idx_requests_ts already covers the window scan.
+
+/** One hour of the ledger. `client` is null when the rows weren't split by client. */
+export interface UsageBucket {
+  /** 'YYYY-MM-DDTHH:00', in whatever zone the caller asked for — NOT necessarily UTC. */
+  hour: string;
+  client: string | null;
+  requests: number;
+  /** Prompt tokens the upstream actually read fresh. */
+  inputTokens: number;
+  /** Prompt tokens served from the upstream's cache. Disjoint from inputTokens — see src/pricing.ts. */
+  cacheReadTokens: number;
+  /** Prompt tokens written INTO the cache (Anthropic only; OpenAI reports none). */
+  cacheWriteTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}
+
+export interface HourlyUsageOptions {
+  /** Oldest timestamp to include, as a full UTC ISO string. Compared lexicographically against `ts`. */
+  since: string;
+  /** Only this client, or every client when omitted. */
+  client?: string | undefined;
+  /** Shifts the hour boundaries off UTC — 240 buckets a Dubai day, -300 a New York one. */
+  offsetMinutes?: number;
+  /** One row per (hour, client) instead of one row per hour. */
+  byClient?: boolean;
+}
+
+interface UsageRow {
+  hour: string;
+  client: string | null;
+  requests: number;
+  input_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
+/**
+ * Hourly token and cost totals, newest hour first.
+ *
+ * Two things this deliberately does NOT do. It doesn't invent empty rows for
+ * hours with no traffic — an hour that isn't there is an hour nothing ran in,
+ * and a caller drawing a chart can fill the gaps knowing that. And it doesn't
+ * fold cache reads into `inputTokens`: they're disjoint counts (src/pricing.ts
+ * backs OpenAI's cached tokens out of prompt_tokens so they can be priced
+ * differently), so the sum is the caller's to make, out in the open.
+ */
+export function hourlyUsage(db: Database, opts: HourlyUsageOptions): UsageBucket[] {
+  const { since, client, offsetMinutes = 0, byClient = false } = opts;
+  // Bound as a parameter, never interpolated: an offset is a number from a
+  // query string, and SQLite modifiers are strings.
+  const modifier = `${offsetMinutes >= 0 ? '+' : '-'}${Math.abs(Math.trunc(offsetMinutes))} minutes`;
+  const clientColumn = byClient ? 'client' : 'NULL AS client';
+  const groupBy = byClient ? 'hour, client' : 'hour';
+
+  const rows = db
+    .query<UsageRow, [string, string, string | null, string | null]>(`
+      SELECT strftime('%Y-%m-%dT%H:00', ts, ?) AS hour,
+             ${clientColumn},
+             COUNT(*)                        AS requests,
+             SUM(input_tokens)               AS input_tokens,
+             SUM(cache_read_tokens)          AS cache_read_tokens,
+             SUM(cache_write_tokens)         AS cache_write_tokens,
+             SUM(output_tokens)              AS output_tokens,
+             SUM(COALESCE(cost_usd, 0))      AS cost_usd
+      FROM requests
+      WHERE ts >= ?
+        AND (? IS NULL OR client = ?)
+      GROUP BY ${groupBy}
+      ORDER BY hour DESC${byClient ? ', client ASC' : ''}
+    `)
+    .all(modifier, since, client ?? null, client ?? null);
+
+  return rows.map((r) => ({
+    hour: r.hour,
+    client: r.client,
+    requests: r.requests,
+    inputTokens: r.input_tokens,
+    cacheReadTokens: r.cache_read_tokens,
+    cacheWriteTokens: r.cache_write_tokens,
+    outputTokens: r.output_tokens,
+    costUsd: r.cost_usd,
+  }));
 }
 
 export interface RequestCountRow {

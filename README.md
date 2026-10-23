@@ -15,7 +15,7 @@ Salik centralises that instead of letting it multiply:
 - **The original native passthrough surfaces are still there** — Ollama-native (`/api/chat`) and Anthropic-native (`/v1/messages`) remain untouched, byte-exact, for clients that need a provider's own dialect verbatim (Ollama's `format`/`think:false`, Anthropic's `cache_control`).
 - **A real priority queue over the one local slot** — every client is tagged with a tier; a higher-tier request preempts a lower-tier one instead of queueing behind it, and the preempted caller gets an unambiguous `409` back, not a stall.
 - **Centralised cloud credentials** — Salik holds the real Anthropic/OpenAI keys; every client gets its own scoped Salik token instead.
-- **Metering by default** — every request lands one row in SQLite: client, tier, model, tokens, latency, and cost. Bodies are never logged unless a client explicitly opts in.
+- **Metering by default** — every request lands one row in SQLite: client, tier, model, tokens, latency, and cost. Bodies are never logged unless a client explicitly opts in. `GET /api/salik/usage` and `bun run tokens` read that ledger back as tokens per hour, split by client if you want it.
 
 ## Architecture
 
@@ -62,6 +62,34 @@ curl -s -H "Authorization: Bearer <a client token>" http://127.0.0.1:4749/api/ta
 curl -s -H "Authorization: Bearer <a client token>" http://127.0.0.1:4749/api/salik/status
 ```
 
+## What did it all cost, and in tokens?
+
+```bash
+bun run tokens                       # the last 24 hours, by local hour
+bun run tokens --days 7 --by-client  # a week, split by who spent it
+bun run tokens --client trip-agent-worker --utc --json
+```
+
+```
+salik · tokens by hour  (last 48h, +04:00)
+
+hour              reqs   in new  in cached  in total     out   tokens  cost
+2026-08-17 20:00    34   42,012          0    42,012   1,194   43,206     —
+2026-08-17 18:00    77  111,603          0   111,603   4,808  116,411     —
+────────────────  ────  ───────  ─────────  ────────  ──────  ───────  ────
+48h total          232  251,820          0   251,820  12,766  264,586     —
+```
+
+`in total` is every prompt token the upstream read — fresh **plus** served from its cache — and
+`tokens` adds the output to that. Cache reads are billed at a tenth of a fresh token (see
+`config/pricing.json`), so they move the cost column far less than the token columns; that's the
+point of listing them apart. An hour with no traffic has no row rather than a zero one.
+
+The CLI reads `data/salik.db` directly and read-only, so it answers when the gateway is down —
+which is one of the times you most want to know what it had been doing. The same numbers are
+available over HTTP at [`GET /api/salik/usage`](docs/API.md), which is what to use from another
+machine.
+
 ## Testing
 
 ```bash
@@ -84,7 +112,9 @@ src/middleware/         auth, budget, meter
 src/queue.ts            the single Ollama slot: priority queue + preemption
 src/upstream.ts         byte-exact forward + header hygiene
 src/pricing.ts          usage extraction per surface + cost from config/pricing.json
-src/db.ts               bun:sqlite schema
+src/usage.ts            what "tokens consumed" means — one definition, shared by the endpoint and the CLI
+src/db.ts               bun:sqlite schema + the hourly rollup query
+bin/tokens.ts           `bun run tokens` — tokens by hour, read-only, works with the server down
 src/types.ts            Salik's own state — Tier, Client, ModelRegistry, QueueState, config validation
 config/                 settings, models, pricing, and (gitignored) keys
 ops/                    launchd plist, install script, log rotation

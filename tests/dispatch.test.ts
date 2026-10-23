@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { authHeaders, buildTestApp, TEST_CLIENTS } from './build-app.ts';
 import { createFakeUpstream, jsonResponse, HANG, type FakeUpstream } from './fake-upstreams.ts';
-import type { ModelRegistry } from '../src/types.ts';
+import type { ModelRegistry } from '../src/config.ts';
 
 const TOKEN = TEST_CLIENTS[0]!.token; // portfolio, interactive tier
 

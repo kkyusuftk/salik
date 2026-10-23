@@ -4,7 +4,8 @@
 // plain HTTP line.
 import { createMiddleware } from 'hono/factory';
 import type { Database } from 'bun:sqlite';
-import type { AppEnv } from '../types.ts';
+import type { AppEnv } from '../context.ts';
+import { salikErrorBody } from '../errors.ts';
 import { spendToday } from '../db.ts';
 
 export function createBudgetMiddleware(db: Database) {
@@ -14,14 +15,12 @@ export function createBudgetMiddleware(db: Database) {
     const spent = spendToday(db, client.name, today);
 
     if (spent >= client.dailyBudgetUsd) {
-      return c.json(
-        {
-          error: {
-            type: 'salik_budget_exceeded',
-            message: `daily budget of $${client.dailyBudgetUsd.toFixed(2)} exceeded ($${spent.toFixed(2)} spent today)`,
-          },
-        },
-        402,
+      return Response.json(
+        salikErrorBody(
+          'salik_budget_exceeded',
+          `daily budget of $${client.dailyBudgetUsd.toFixed(2)} exceeded ($${spent.toFixed(2)} spent today)`,
+        ),
+        { status: 402 },
       );
     }
 

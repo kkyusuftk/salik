@@ -5,7 +5,9 @@
 // change") send `x-api-key` by default, and zero other code is supposed to
 // change. So this checks both headers against the same client table.
 import { createMiddleware } from 'hono/factory';
-import type { AppEnv, Client } from '../types.ts';
+import type { Client } from '../config.ts';
+import type { AppEnv } from '../context.ts';
+import { salikErrorBody } from '../errors.ts';
 
 function bearerToken(header: string | undefined): string | null {
   if (!header) return null;
@@ -21,7 +23,7 @@ export function createAuthMiddleware(clients: readonly Client[]) {
     const client = token ? byToken.get(token) : undefined;
 
     if (!client) {
-      return c.json({ error: { type: 'salik_invalid_api_key', message: 'missing or unrecognised token' } }, 401);
+      return Response.json(salikErrorBody('salik_invalid_api_key', 'missing or unrecognised token'), { status: 401 });
     }
 
     c.set('client', client);

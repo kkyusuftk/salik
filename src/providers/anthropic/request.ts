@@ -7,8 +7,7 @@
 // (src/providers/anthropic/types.ts's AnthropicMessagesRequestBody and
 // friends), because that's a shape this code owns and wants checked.
 import { Buffer } from 'node:buffer';
-import { numberOr, tryParseJson } from '../../pricing.ts';
-import { isRecord } from '../../types.ts';
+import { isRecord, numberOr, tryParseJson } from '../../json.ts';
 import type {
   AnthropicImageBlock,
   AnthropicImageSource,

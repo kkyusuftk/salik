@@ -101,6 +101,47 @@ Auth required; **not** budget-gated and **not** metered (checking your own statu
 
 `queue.slot.kind` is `"idle"` when nothing is running. `spend.byClient` lists every client that made at least one *priced* request today (a genuinely free local model still shows up at `0`; a request with no resolvable model — a health probe — does not appear at all, since there's nothing to attribute).
 
+### `GET /api/salik/usage`
+
+Tokens by hour, read back off the `requests` ledger. Auth required; like `/api/salik/status`, **not** budget-gated and **not** metered — a usage report you can't read once you're over your cap is a report you can't use to find out why, and metering it would make the ledger a record of itself.
+
+| query param | default | meaning |
+|---|---|---|
+| `hours` | `24` | how far back, 1 to 744 (31 days) |
+| `client` | all | only this client's rows |
+| `by` | — | `by=client` splits each hour by client instead of totalling it |
+| `tz` | `utc` | hour boundaries: `utc`, `local` (the *server's* zone), `+04:00`, `-0530`, or plain minutes east of UTC |
+
+```json
+{
+  "window": {"hours": 24, "since": "2026-08-17T18:00:00.000Z", "tz": "+04:00", "offsetMinutes": 240},
+  "client": null,
+  "groupedBy": ["hour"],
+  "buckets": [
+    {
+      "hour": "2026-08-17T20:00", "client": null, "requests": 34,
+      "inputTokens": 42012, "cacheReadTokens": 0, "cacheWriteTokens": 0,
+      "promptTokens": 42012, "outputTokens": 1194, "totalTokens": 43206,
+      "costUsd": 0.0
+    }
+  ],
+  "totals": {"requests": 232, "inputTokens": 251820, "cacheReadTokens": 0, "cacheWriteTokens": 0,
+             "promptTokens": 251820, "outputTokens": 12766, "totalTokens": 264586, "costUsd": 0.0}
+}
+```
+
+- **`promptTokens` is everything the upstream read**: `inputTokens` (fresh) + `cacheReadTokens` (served from its cache) + `cacheWriteTokens`. The three are disjoint — `src/pricing.ts` backs OpenAI's `cached_tokens` out of `prompt_tokens` precisely so they can be priced apart — and they're reported apart because a cached token costs a tenth of a fresh one but is not a tenth of a token. `totalTokens` is `promptTokens + outputTokens`.
+- **`hour` is `YYYY-MM-DDTHH:00` in the zone `window.tz` names**, never a bare local guess. An offset moves the boundaries, not just the labels: a 23:30 UTC request files under `03:00` the next day at `tz=+04:00`.
+- **Hours with no traffic are absent**, not zero-filled — a gap is silence, and a caller drawing a chart can fill it knowing that.
+- **A request whose model has no `pricing.json` entry still counts its tokens**; only its cost is missing, and it contributes `0` to `costUsd`.
+- **`hours` or `tz` that can't be honoured is a `400`** (`salik_invalid_request`), never a silent fallback to UTC — a report labelled with the wrong hours looks right, which is the dangerous kind of wrong.
+
+The same numbers on this machine, without a token and without the server running:
+
+```bash
+bun run tokens --days 7 --by-client
+```
+
 ## Errors that aren't specific to one endpoint
 
 | Status | Type | When |

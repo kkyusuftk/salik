@@ -1,6 +1,7 @@
 // Anthropic Messages response (non-streaming) -> OpenAI chat-completion response.
 import { usageFromAnthropicObject } from '../../pricing.ts';
-import { isRecord, type ExtractedUsage } from '../../types.ts';
+import { isRecord } from '../../json.ts';
+import type { ExtractedUsage } from '../../wire.ts';
 import type { OpenAiChatResponse, OpenAiToolCall, OpenAiUsage } from './types.ts';
 
 export interface AnthropicToOpenAiResult {

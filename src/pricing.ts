@@ -5,22 +5,9 @@
 // reconstructs or re-emits the body itself (that stays byte-exact — see
 // src/upstream.ts and PLAN.md's "Passthrough safety under Hono").
 import { Buffer } from 'node:buffer';
-import { isRecord, type ExtractedUsage, type PriceEntry, type PriceTable, type Surface, type Usage, ZERO_USAGE } from './types.ts';
-
-// Exported for src/providers/anthropic/ to reuse rather than re-derive —
-// these three are the only bits of Anthropic-wire-shape parsing this file
-// and that module both need.
-export function tryParseJson(text: string): unknown {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-export function numberOr(x: unknown, fallback: number): number {
-  return typeof x === 'number' && Number.isFinite(x) ? x : fallback;
-}
+import type { PriceEntry, PriceTable } from './config.ts';
+import { isRecord, numberOr, tryParseJson } from './json.ts';
+import { type ExtractedUsage, type Surface, type Usage, ZERO_USAGE } from './wire.ts';
 
 // ---------------------------------------------------------------- anthropic
 

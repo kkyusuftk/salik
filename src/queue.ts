@@ -1,7 +1,7 @@
 // The single Ollama slot: priority queue + preemption. Cloud upstreams never
 // touch this class — they parallelise fine (PLAN.md's "core invariant") — so
 // this exists purely to serialise access to the one thing that can't.
-import { TIER_RANK, TIERS, type QueueState, type QueueStatus, type Tier } from './types.ts';
+import { TIER_RANK, TIERS, type QueueState, type QueueStatus, type Tier } from './wire.ts';
 
 /**
  * Thrown when a higher-tier request took the slot away mid-flight. The wire

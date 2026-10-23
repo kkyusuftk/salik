@@ -12,7 +12,8 @@ import {
   priceFor,
   readModelHint,
 } from '../src/pricing.ts';
-import type { PriceTable, Usage } from '../src/types.ts';
+import type { PriceTable } from '../src/config.ts';
+import type { Usage } from '../src/wire.ts';
 
 const PRICES: PriceTable = {
   'claude-sonnet-5': [

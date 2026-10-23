@@ -8,6 +8,7 @@
     "dev": "bun --watch server/server.ts",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test",
+    "tokens": "bun bin/tokens.ts",
     "verify": "bunx tsc --noEmit && bun test"
   },
   "dependencies": {

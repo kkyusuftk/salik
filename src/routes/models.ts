@@ -2,7 +2,8 @@
 // Mounted with auth only (see src/app.ts) — a pure local-config read, no
 // upstream call, so there's nothing to budget-gate or meter.
 import { Hono } from 'hono';
-import type { AppEnv, ModelRegistry } from '../types.ts';
+import type { ModelRegistry } from '../config.ts';
+import type { AppEnv } from '../context.ts';
 
 export interface ModelsRouteDeps {
   registry: ModelRegistry;

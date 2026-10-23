@@ -16,7 +16,8 @@
 // send bytes" and "did dispatch already commit to this attempt" are the
 // same question.
 import { Buffer } from 'node:buffer';
-import { tryParseJson } from './pricing.ts';
+import { openAiErrorBody } from './errors.ts';
+import { tryParseJson } from './json.ts';
 import {
   requestErrorToResponse,
   translateErrorResponse,
@@ -26,7 +27,9 @@ import {
 } from './providers/anthropic/index.ts';
 import { Preempted, type OllamaQueue } from './queue.ts';
 import { forward } from './upstream.ts';
-import { isRecord, type ModelEntry, type ModelRegistry, type Tier, type UpstreamName } from './types.ts';
+import { isRecord } from './json.ts';
+import type { ModelEntry, ModelRegistry } from './config.ts';
+import type { Tier, UpstreamName } from './wire.ts';
 
 export class UnknownModelError extends Error {
   constructor(model: string) {
@@ -183,7 +186,7 @@ async function runAttempt(
     const message = thrown instanceof Error ? thrown.message : String(thrown);
     return {
       kind: 'failed',
-      response: Response.json({ error: { message, type: 'api_error', param: null, code: null } }, { status: 502 }),
+      response: Response.json(openAiErrorBody(message, 'api_error'), { status: 502 }),
       queueWaitMs: 0,
     };
   }

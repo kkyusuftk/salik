@@ -7,7 +7,8 @@ import type { Hono } from 'hono';
 import { createApp } from '../src/app.ts';
 import { openDb } from '../src/db.ts';
 import { OllamaQueue } from '../src/queue.ts';
-import type { AppEnv, Client, ModelEntry, ModelRegistry, PriceTable } from '../src/types.ts';
+import type { Client, ModelEntry, ModelRegistry, PriceTable } from '../src/config.ts';
+import type { AppEnv } from '../src/context.ts';
 
 export const TEST_CLIENTS: Client[] = [
   { token: 'tok-interactive', name: 'portfolio', tier: 'interactive', dailyBudgetUsd: 2.0, debug: false },

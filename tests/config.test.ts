@@ -2,7 +2,7 @@
 // thereafter — this is what makes that trustworthy: a malformed file must
 // refuse to start rather than run with a silently-wrong client list.
 import { describe, expect, test } from 'bun:test';
-import { parseKeysFile, parseModelRegistry, parsePriceTable, parseSettings } from '../src/types.ts';
+import { parseKeysFile, parseModelRegistry, parsePriceTable, parseSettings } from '../src/config.ts';
 
 describe('parseKeysFile', () => {
   const valid = {

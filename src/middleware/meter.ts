@@ -1,8 +1,9 @@
 // Wraps the route handler: times it, writes one `requests` row always, and a
-// debug body only when asked. Registered last of the shared middleware (see
-// server/server.ts), so by the time this runs, auth has already put a real
-// `client`/`tier` on the context — a 401/402 never reaches here, and
-// deliberately gets no row (see src/middleware/budget.ts).
+// debug body only when asked. Registered third of the shared middleware
+// (auth → budget → this → prologue, see src/app.ts), so by the time this
+// runs, auth has already put a real `client`/`tier` on the context — a
+// 401/402 never reaches here, and deliberately gets no row (see
+// src/middleware/budget.ts).
 import { Buffer } from 'node:buffer';
 import type { Database } from 'bun:sqlite';
 import { appendFileSync, chmodSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs';
@@ -11,7 +12,10 @@ import { createMiddleware } from 'hono/factory';
 import { bumpDailySpend, insertRequest } from '../db.ts';
 import { computeCost, extractUsage } from '../pricing.ts';
 import { toErrorResponse } from '../upstream.ts';
-import { ZERO_USAGE, type AppEnv, type PriceTable, type Usage } from '../types.ts';
+import { isDebugRequested } from './prologue.ts';
+import { type PriceTable } from '../config.ts';
+import type { AppEnv } from '../context.ts';
+import { type Usage, ZERO_USAGE } from '../wire.ts';
 
 export interface MeterDeps {
   db: Database;
@@ -113,7 +117,7 @@ export function createMeterMiddleware({ db, priceTable, bodiesDir }: MeterDeps) 
     const preempted = c.get('preempted');
     const requestId = c.get('requestId');
     const debugRequestBody = c.get('debugRequestBody');
-    const debugOn = client.debug || c.req.header('x-salik-debug') === '1';
+    const debugOn = isDebugRequested(client, c.req.header('x-salik-debug'));
     const ts = new Date().toISOString();
 
     const finish = (usage: Usage, model: string | null, costUsd: number | null, responseRaw: Buffer | null): void => {

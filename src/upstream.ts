@@ -2,6 +2,7 @@
 // module allowed to touch bytes on their way to/from an upstream, and even it
 // never parses or re-serialises the body — see PLAN.md's "Passthrough safety
 // under Hono".
+import { salikErrorResponse } from './errors.ts';
 
 const REQUEST_HOP_BY_HOP = [
   'connection',
@@ -105,9 +106,7 @@ export function isAbortError(err: unknown): boolean {
  * that uncertainty entirely.
  */
 export function toErrorResponse(err: unknown): Response {
-  if (isAbortError(err)) {
-    return Response.json({ error: { type: 'salik_client_closed', message: 'client disconnected' } }, { status: 499 });
-  }
+  if (isAbortError(err)) return salikErrorResponse('salik_client_closed', 'client disconnected', 499);
   const message = err instanceof Error ? err.message : String(err);
-  return Response.json({ error: { type: 'salik_upstream_error', message } }, { status: 502 });
+  return salikErrorResponse('salik_upstream_error', message, 502);
 }

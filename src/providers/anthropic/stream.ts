@@ -4,8 +4,8 @@
 // backpressure and multi-byte-UTF-8-boundary handling for free, no new
 // dependency, and each stage independently testable with a synthetic
 // ReadableStream.
-import { numberOr } from '../../pricing.ts';
-import { isRecord, type ExtractedUsage } from '../../types.ts';
+import { isRecord, numberOr } from '../../json.ts';
+import type { ExtractedUsage } from '../../wire.ts';
 import { createAnthropicEventParser, createLineSplitter, type AnthropicSseEvent } from './sse.ts';
 
 const FINISH_REASON: Record<string, string> = {
