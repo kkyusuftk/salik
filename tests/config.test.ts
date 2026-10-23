@@ -2,6 +2,7 @@
 // thereafter — this is what makes that trustworthy: a malformed file must
 // refuse to start rather than run with a silently-wrong client list.
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { parseKeysFile, parseModelRegistry, parsePriceTable, parseSettings } from '../src/config.ts';
 
 describe('parseKeysFile', () => {
@@ -179,5 +180,36 @@ describe('parseModelRegistry', () => {
   test('rejects a missing defaultFallback', () => {
     const { defaultFallback: _drop, ...bad } = valid;
     expect(() => parseModelRegistry(bad, 'test')).toThrow(/defaultFallback/);
+  });
+});
+
+// The checked-in files themselves, read the way server/server.ts reads them at
+// startup. The tests above prove the parsers; these prove the config the next
+// restart will actually load.
+describe('config/*.json as checked in', () => {
+  const load = (file: string): unknown => JSON.parse(readFileSync(new URL(`../config/${file}`, import.meta.url), 'utf8'));
+
+  test('settings, models and pricing all parse', () => {
+    expect(() => parseSettings(load('settings.json'), 'config/settings.json')).not.toThrow();
+    expect(() => parseModelRegistry(load('models.json'), 'config/models.json')).not.toThrow();
+    expect(() => parsePriceTable(load('pricing.json'), 'config/pricing.json')).not.toThrow();
+  });
+
+  test('every cloud model has a price', () => {
+    // src/middleware/meter.ts prices a call by its upstreamModel, and an
+    // unpriced one meters at zero, which silently switches off every client's
+    // daily budget cap on that model.
+    const registry = parseModelRegistry(load('models.json'), 'config/models.json');
+    const prices = parsePriceTable(load('pricing.json'), 'config/pricing.json');
+    const unpriced = registry.models
+      .filter((m) => m.provider !== 'ollama' && prices[m.upstreamModel] === undefined)
+      .map((m) => m.id);
+    expect(unpriced).toEqual([]);
+  });
+
+  test("Donna's gpt-5.4-mini falls back to another OpenAI model, never the Anthropic default", () => {
+    const registry = parseModelRegistry(load('models.json'), 'config/models.json');
+    const fallbackId = registry.byId.get('gpt-5.4-mini')?.fallback ?? registry.defaultFallback;
+    expect(registry.byId.get(fallbackId)?.provider).toBe('openai');
   });
 });

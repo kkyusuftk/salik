@@ -1,5 +1,5 @@
 {
-  "_comment": "$ per million tokens, verified against Anthropic's published pricing on 2026-08-16. Each model is an array of chronological rate periods; the LAST entry must have no \"until\" (src/types.ts enforces this at load) — that's the standing rate an introductory one rolls over to. Cache reads/writes are derived from `input` (0.1x / 1.25x) in src/pricing.ts, not listed separately here. THE OPENAI ROWS BELOW ARE UNCONFIRMED — they were added on 2026-08-18 when trip-agent moved onto gpt-5-mini, from OpenAI's published per-million rates, but nobody has checked them against the account's own billing page yet. They are here rather than absent because an unpriced model meters at zero, which silently disables every client's daily budget cap on it — a wrong-by-a-little number that still enforces a cap beats an honest gap that enforces nothing. Verify them and delete this sentence.",
+  "_comment": "$ per million tokens, verified against Anthropic's published pricing on 2026-08-16. Each model is an array of chronological rate periods; the LAST entry must have no \"until\" (src/config.ts enforces this at load) — that's the standing rate an introductory one rolls over to. Cache reads/writes are derived from `input` (0.1x / 1.25x) in src/pricing.ts, not listed separately here. THE OPENAI ROWS BELOW ARE UNCONFIRMED — they were added on 2026-08-18 when trip-agent moved onto gpt-5-mini, from OpenAI's published per-million rates, but nobody has checked them against the account's own billing page yet. gpt-5.4-mini's was added on 2026-10-23 for Donna, from third-party price trackers rather than OpenAI's own page. They are here rather than absent because an unpriced model meters at zero, which silently disables every client's daily budget cap on it — a wrong-by-a-little number that still enforces a cap beats an honest gap that enforces nothing. Verify them and delete this sentence.",
 
   "claude-opus-5": [
     { "input": 5.00, "output": 25.00 }
@@ -18,6 +18,9 @@
     { "input": 10.00, "output": 50.00 }
   ],
 
+  "gpt-5.4-mini": [
+    { "input": 0.75, "output": 4.50 }
+  ],
   "gpt-5-mini": [
     { "input": 0.25, "output": 2.00 }
   ],
