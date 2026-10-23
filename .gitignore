@@ -3,4 +3,7 @@ data/
 .DS_Store
 
 # Real client tokens and real upstream cloud keys. Copy keys.json.example.
+# Copies of it (keys.json.bak-before-inbox and the like) hold the same secrets.
 config/keys.json
+config/keys.json.*
+!config/keys.json.example
